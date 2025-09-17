@@ -1,0 +1,16 @@
+#!/bin/bash
+
+window_ids=()
+window_titles=()
+
+while read -r i; do
+  declare -a line_array="($i)"
+  window_ids+=("${line_array[0]}")
+  window_titles+=("${line_array[1]} - ${line_array[2]} \0icon\x1f${line_array[1]}")
+done <<<$(hyprctl clients -j | jq -r '.[] | [ .address, .class, .title ] | "\""+join ("\" \"")+"\""')
+
+result=$(printf "%b\n" "${window_titles[@]}" | fuzzel -d -a top --y 4 -w 80 -p "" --minimal-lines --placeholder "Focus to window:")
+
+if [ "x$result" != "x" ] && [ "$result" != -1 ]; then
+  hyprctl dispatch focuswindow address:"${window_ids[result]}"
+fi
