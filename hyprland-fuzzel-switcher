@@ -1,17 +1,67 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Window switcher for Hyprland. Marks special workspaces with ⭐
 
-window_ids=()
-window_titles=()
+reverse=0
 
-while read -r i; do
-  declare -a line_array="($i)"
-  window_ids+=("${line_array[0]}")
-  window_titles+=("${line_array[1]} - ${line_array[2]} \0icon\x1f${line_array[1]}")
-done <<<$(hyprctl clients -j | jq -r '.[] | [ .address, .class, .title ] | "\""+join ("\" \"")+"\""')
+# Parse flags
+for arg in "$@"; do
+  case "$arg" in
+  --reverse) reverse=1 ;;
+  esac
+done
 
-result=$(printf "%b\n" "${window_titles[@]}" |
-  fuzzel -d -a top --y 4 -w 80 -p "" --minimal-lines --index --placeholder "Focus to window:")
+entries=()
+ids=()
 
-if [ "x$result" != "x" ] && [ "$result" != -1 ]; then
-  hyprctl dispatch focuswindow address:"${window_ids[result]}"
+# Collect windows from Hyprland
+while IFS=$'\t' read -r id class title ws_id ws_name; do
+  if [[ $ws_name == special* ]]; then
+    label="[⭐:$ws_name]" # ⭐ = special workspace
+    sortkey=1
+    sort_ws=9999
+  else
+    label="[$ws_id]"
+    sortkey=0
+    sort_ws=$ws_id
+  fi
+
+  entries+=("$sortkey	$sort_ws	$id	$label	$class - $title")
+done < <(
+  hyprctl clients -j |
+    jq -r '.[] |
+      [
+        .address,
+        .class,
+        .title,
+        (.workspace.id|tostring),
+        (.workspace.name // "")
+      ] | @tsv'
+)
+
+# Sort entries:
+if ((reverse)); then
+  mapfile -t entries < <(printf '%s\n' "${entries[@]}" | sort -t $'\t' -k1,1r -k2,2n)
+else
+  mapfile -t entries < <(printf '%s\n' "${entries[@]}" | sort -t $'\t' -k1,1 -k2,2n)
+fi
+
+labels=()
+
+# Fuzzel output
+for e in "${entries[@]}"; do
+  tmp="${e#*$'\t'}"
+  tmp="${tmp#*$'\t'}"
+  id="${tmp%%$'\t'*}"
+  tmp="${tmp#*$'\t'}"
+  label="${tmp%%$'\t'*}"
+  body="${tmp#*$'\t'}"
+  labels+=("$label $body")
+  ids+=("$id")
+done
+
+result=$(printf '%s\n' "${labels[@]}" |
+  fuzzel -d -a top --y 4 -w 62 -p "" --minimal-lines --index --hide-prompt)
+
+if [[ -n $result && $result != "-1" ]]; then
+  hyprctl dispatch focuswindow address:"${ids[result]}"
 fi
